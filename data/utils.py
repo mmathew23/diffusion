@@ -8,9 +8,7 @@ from torch.utils.data import DataLoader
 
 def get_augmentations(cfg: DictConfig):
     augs = [instantiate(aug) for aug in cfg]
-    return Compose([
-        augs
-    ])
+    return Compose(augs)
 
 
 def get_transforms(cfg: ListConfig):
@@ -25,7 +23,7 @@ def get_transforms(cfg: ListConfig):
     ])
 
     def apply_transforms(samples):
-        samples['pixel_values'] = [transforms(sample['image']) for sample in samples['image']]
+        samples['pixel_values'] = [transforms(sample) for sample in samples['image']]
         return samples
 
     return apply_transforms
