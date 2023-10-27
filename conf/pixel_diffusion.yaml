@@ -1,0 +1,47 @@
+image_size: 128  
+dataset_name: 'texturedesign/td01_natural-ground-textures'
+train_batch_size: 16
+val_batch_size: 16  
+num_epochs: 50
+gradient_accumulation_steps: 1
+learning_rate: 1e-4
+save_image_epochs: 10
+save_model_epochs: 30
+mixed_precision: "fp16"  # `no` for float32, `fp16` for automatic mixed precision
+output_dir: "ddpm-textures"  # the model name locally and on the HF Hub
+overwrite_output_dir: true  # overwrite the old model when re-running the notebook
+seed: 0
+unet:
+  _target_: "diffusers.UNet2DModel"
+  sample_size: ${image_size}
+  in_channels: 3
+  out_channels: 3
+  layers_per_block: 2
+  block_out_channels: [128, 256, 512, 512]
+  down_block_types: ["DownBlock2D", "AttnDownBlock2D", "AttnDownBlock2D", "AttnDownBlock2D"]
+  up_block_types: ["AttnUpBlock2D", "AttnUpBlock2D", "AttnUpBlock2D", "UpBlock2D"]
+  dropout: 0.0
+scheduler:
+  _target_: "diffusers.DDPMScheduler"
+  num_train_timesteps: 1000
+  beta_schedule: "linear"
+optimizer:
+  _target_: "torch.optim.AdamW"
+  lr: ${learning_rate}
+scheduler:
+  num_warmup_steps: 500
+data:
+  dataset:
+    path: ${dataset_name}
+    split: 'train'
+  augmentations:
+    - _target_: "torchvision.transforms.RandomCrop"
+      size: ${image_size}
+    - _target_: "torchvision.transforms.RandomHorizontalFlip"
+      p: 0.5
+    - _target_: "torchvision.transforms.RandomVerticalFlip"
+      p: 0.5
+  dataloader:
+    num_workers: 8
+    shuffle: true
+    batch_size: ${train_batch_size}
