@@ -1,6 +1,6 @@
 import torch
 import hydra
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from data.utils import get_dataloader
 from diffusers.optimization import get_cosine_schedule_with_warmup
 from validate import evaluate
@@ -33,7 +33,6 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
     model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, lr_scheduler
     )
-
     global_step = 0
 
     for epoch in range(config.num_epochs):
@@ -81,7 +80,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
                 evaluate(config, epoch, pipeline)
 
             if (epoch + 1) % config.save_model_epochs == 0 or epoch == config.num_epochs - 1:
-                pipeline.save_pretrained(config.output_dir)
+                pipeline.save_pretrained(os.path.join(config.output_dir, f"checkpoints_{epoch+1}"))
 
     accelerator.end_training()
 
@@ -90,7 +89,8 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
 def train(config: DictConfig) -> None:
 
     train_dataloader = get_dataloader(config.data)
-    unet = hydra.utils.instantiate(config.unet)
+    # _convert_ partial to save listconfigs as lists in unet so that it can be saved
+    unet = hydra.utils.instantiate(config.unet, _convert_="partial")
     unet.enable_xformers_memory_efficient_attention()
     noise_scheduler = hydra.utils.instantiate(config.noise_scheduler)
     optimizer = hydra.utils.instantiate(config.optimizer, params=unet.parameters())

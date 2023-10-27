@@ -4,11 +4,11 @@ dataset_name: 'texturedesign/td01_natural-ground-textures'
 noise_offset: 0.1
 train_batch_size: 8
 val_batch_size: 8
-num_epochs: 50
+num_epochs: 100
 gradient_accumulation_steps: 1
 learning_rate: 1e-4
 save_image_epochs: 10
-save_model_epochs: 30
+save_model_epochs: 10
 mixed_precision: "fp16"  # `no` for float32, `fp16` for automatic mixed precision
 output_dir: "ddpm-textures"  # the model name locally and on the HF Hub
 overwrite_output_dir: true  # overwrite the old model when re-running the notebook
