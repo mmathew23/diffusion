@@ -3,7 +3,7 @@ from hydra.utils import instantiate
 from torchvision.transforms import Normalize, ToTensor, Compose
 import torch
 from datasets import load_dataset
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 
 
 def get_augmentations(cfg: DictConfig):
@@ -43,7 +43,7 @@ def get_dataloader(config: DictConfig):
         dataset,
         batch_size=config.dataloader.batch_size,
         num_workers=config.dataloader.num_workers,
-        shuffle=config.dataloader.shuffle,
+        sampler=WeightedRandomSampler([1]*len(dataset), num_samples=config.dataloader.dataset_length),
         collate_fn=collate_fn
     )
     return dataloader

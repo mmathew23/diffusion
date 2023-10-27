@@ -3,9 +3,9 @@ image_size: 128
 dataset_name: 'texturedesign/td01_natural-ground-textures'
 noise_offset: 0.1
 train_batch_size: 8
-val_batch_size: 16  
+val_batch_size: 8
 num_epochs: 50
-gradient_accumulation_steps: 2
+gradient_accumulation_steps: 1
 learning_rate: 1e-4
 save_image_epochs: 10
 save_model_epochs: 30
@@ -45,5 +45,5 @@ data:
       p: 0.5
   dataloader:
     num_workers: 8
-    shuffle: true
+    dataset_length: 1000
     batch_size: ${train_batch_size}

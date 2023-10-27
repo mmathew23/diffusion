@@ -37,7 +37,10 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
     global_step = 0
 
     for epoch in range(config.num_epochs):
-        progress_bar = tqdm(total=len(train_dataloader), disable=not accelerator.is_local_main_process)
+        total_steps = len(train_dataloader) // config.gradient_accumulation_steps
+        if len(train_dataloader) % config.gradient_accumulation_steps != 0:
+            total_steps += 1
+        progress_bar = tqdm(total=total_steps, disable=not accelerator.is_local_main_process)
         progress_bar.set_description(f"Epoch {epoch}")
         for step, batch in enumerate(train_dataloader):
             images = batch["pixel_values"]
@@ -59,7 +62,8 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
                 noise_pred = model(noisy_images, timesteps, return_dict=False)[0]
                 loss = F.mse_loss(noise_pred, noise)
                 accelerator.backward(loss)
-                accelerator.clip_grad_norm_(model.parameters(), 1.0)
+                if accelerator.sync_gradients:
+                    accelerator.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
                 lr_scheduler.step()
                 optimizer.zero_grad()
