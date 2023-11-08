@@ -4,7 +4,7 @@ from omegaconf import DictConfig, OmegaConf
 from data.utils import get_dataloader
 from diffusers.optimization import get_cosine_schedule_with_warmup
 from validate import evaluate
-from diffusers import DDPMPipeline
+from diffusers import DDIMPipeline, EMAModel
 from accelerate import Accelerator
 import os
 from tqdm import tqdm
@@ -12,7 +12,35 @@ import xformers
 import torch.nn.functional as F
 
 
+def compute_snr(timesteps, scheduler):
+    """
+    Computes SNR as per https://github.com/TiankaiHang/Min-SNR-Diffusion-Training/blob/521b624bd70c67cee4bdf49225915f5945a872e3/guided_diffusion/gaussian_diffusion.py#L847-L849
+    """
+    alphas_cumprod = scheduler.alphas_cumprod
+    sqrt_alphas_cumprod = alphas_cumprod**0.5
+    sqrt_one_minus_alphas_cumprod = (1.0 - alphas_cumprod) ** 0.5
+
+    # Expand the tensors.
+    # Adapted from https://github.com/TiankaiHang/Min-SNR-Diffusion-Training/blob/521b624bd70c67cee4bdf49225915f5945a872e3/guided_diffusion/gaussian_diffusion.py#L1026
+    sqrt_alphas_cumprod = sqrt_alphas_cumprod.to(device=timesteps.device)[timesteps].float()
+    while len(sqrt_alphas_cumprod.shape) < len(timesteps.shape):
+        sqrt_alphas_cumprod = sqrt_alphas_cumprod[..., None]
+    alpha = sqrt_alphas_cumprod.expand(timesteps.shape)
+
+    sqrt_one_minus_alphas_cumprod = sqrt_one_minus_alphas_cumprod.to(device=timesteps.device)[timesteps].float()
+    while len(sqrt_one_minus_alphas_cumprod.shape) < len(timesteps.shape):
+        sqrt_one_minus_alphas_cumprod = sqrt_one_minus_alphas_cumprod[..., None]
+    sigma = sqrt_one_minus_alphas_cumprod.expand(timesteps.shape)
+
+    # Compute SNR.
+    snr = (alpha / sigma) ** 2
+    return snr
+
+
 def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_scheduler):
+
+    if config.use_ema:
+        ema = EMAModel(model.parameters())
 
     accelerator = Accelerator(
         mixed_precision=config.mixed_precision,
@@ -33,6 +61,9 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
     model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, lr_scheduler
     )
+    if config.use_ema:
+        ema.to(accelerator.device)
+
     global_step = 0
 
     for epoch in range(config.num_epochs):
@@ -59,7 +90,16 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
             with accelerator.accumulate(model):
                 # Predict the noise residual
                 noise_pred = model(noisy_images, timesteps, return_dict=False)[0]
-                loss = F.mse_loss(noise_pred, noise)
+                if config.snr_gamma > 0.0:
+                    snr = compute_snr(timesteps, noise_scheduler)
+                    mse_loss_weights = (
+                        torch.stack([snr, config.snr_gamma * torch.ones_like(timesteps)], dim=1).min(dim=1)[0] / snr
+                    )
+                    loss = F.mse_loss(noise_pred.float(), noise.float(), reduction="none")
+                    loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
+                    loss = loss.mean()
+                else:
+                    loss = F.mse_loss(noise_pred, noise)
                 accelerator.backward(loss)
                 if accelerator.sync_gradients:
                     accelerator.clip_grad_norm_(model.parameters(), 1.0)
@@ -68,6 +108,8 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
                 optimizer.zero_grad()
 
             if accelerator.sync_gradients:
+                if config.use_ema:
+                    ema.step(model.parameters())
                 progress_bar.update(1)
                 logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0], "step": global_step}
                 progress_bar.set_postfix(**logs)
@@ -75,12 +117,19 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
                 global_step += 1
 
         if accelerator.is_main_process:
-            pipeline = DDPMPipeline(unet=accelerator.unwrap_model(model), scheduler=noise_scheduler)
+            if config.use_ema:
+                ema.store(model.parameters())
+                ema.copy_to(model.parameters())
+            pipeline = DDIMPipeline(unet=accelerator.unwrap_model(model), scheduler=noise_scheduler)
             if (epoch + 1) % config.save_image_epochs == 0 or epoch == config.num_epochs - 1:
                 evaluate(config, epoch, pipeline)
 
             if (epoch + 1) % config.save_model_epochs == 0 or epoch == config.num_epochs - 1:
                 pipeline.save_pretrained(os.path.join(config.output_dir, f"checkpoints_{epoch+1}"))
+
+            if config.use_ema:
+                ema.restore(model.parameters())
+
 
     accelerator.end_training()
 
@@ -91,7 +140,7 @@ def train(config: DictConfig) -> None:
     train_dataloader = get_dataloader(config.data)
     # _convert_ partial to save listconfigs as lists in unet so that it can be saved
     unet = hydra.utils.instantiate(config.unet, _convert_="partial")
-    unet.enable_xformers_memory_efficient_attention()
+    print(f'Parameter count: {sum([torch.numel(p) for p in unet.parameters()])}')
     noise_scheduler = hydra.utils.instantiate(config.noise_scheduler)
     optimizer = hydra.utils.instantiate(config.optimizer, params=unet.parameters())
     lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps, num_training_steps=len(train_dataloader)*config.num_epochs)
