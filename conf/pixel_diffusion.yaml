@@ -1,16 +1,18 @@
 model_name: "texture_diffusion"
 image_size: 128  
 dataset_name: 'texturedesign/td01_natural-ground-textures'
+snr_gamma: 5.0 
+use_ema: False
 noise_offset: 0.1
-train_batch_size: 8
+train_batch_size: 16
 val_batch_size: 8
-num_epochs: 100
+num_epochs: 20
 gradient_accumulation_steps: 1
 learning_rate: 1e-4
-save_image_epochs: 10
-save_model_epochs: 10
+save_image_epochs: 4
+save_model_epochs: 8
 mixed_precision: "fp16"  # `no` for float32, `fp16` for automatic mixed precision
-output_dir: "ddpm-textures"  # the model name locally and on the HF Hub
+output_dir: "ddpm-textures_noattention20_dataset0_noise_offset0.1_snr_ema"  # the model name locally
 overwrite_output_dir: true  # overwrite the old model when re-running the notebook
 seed: 0
 unet:
@@ -19,10 +21,11 @@ unet:
   in_channels: 3
   out_channels: 3
   layers_per_block: 2
-  block_out_channels: [128, 256, 512, 512]
-  down_block_types: ["DownBlock2D", "AttnDownBlock2D", "AttnDownBlock2D", "AttnDownBlock2D"]
-  up_block_types: ["AttnUpBlock2D", "AttnUpBlock2D", "AttnUpBlock2D", "UpBlock2D"]
+  block_out_channels: [64, 128, 128, 128]
+  down_block_types: ["DownBlock2D", "DownBlock2D", "DownBlock2D", "DownBlock2D"]
+  up_block_types: ["UpBlock2D", "UpBlock2D", "UpBlock2D", "UpBlock2D"]
   dropout: 0.0
+  add_attention: False
 noise_scheduler:
   _target_: "diffusers.DDPMScheduler"
   num_train_timesteps: 1000
@@ -39,11 +42,11 @@ data:
   augmentations:
     - _target_: "torchvision.transforms.RandomCrop"
       size: ${image_size}
-    - _target_: "torchvision.transforms.RandomHorizontalFlip"
-      p: 0.5
-    - _target_: "torchvision.transforms.RandomVerticalFlip"
-      p: 0.5
+    # - _target_: "torchvision.transforms.RandomHorizontalFlip"
+    #   p: 0.5
+    # - _target_: "torchvision.transforms.RandomVerticalFlip"
+    #   p: 0.5
   dataloader:
     num_workers: 8
-    dataset_length: 1000
+    dataset_length: 16000
     batch_size: ${train_batch_size}
