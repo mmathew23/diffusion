@@ -17,8 +17,6 @@ def get_transforms(cfg: ListConfig):
         augs,
         ToTensor(),
         Normalize(
-            # mean=[0.485, 0.456, 0.406],
-            # std=[0.229, 0.224, 0.225]
             mean=[0.5, 0.5, 0.5],
             std=[0.5, 0.5, 0.5],
         ),
@@ -40,6 +38,7 @@ def collate_fn(batch):
 def get_dataloader(config: DictConfig):
     transforms = get_transforms(config.augmentations)
     dataset = load_dataset(**config.dataset)
+    dataset = dataset.filter(lambda x: x['set'] == 1 and x['image'] == dataset[0]['image'])
     dataset.set_transform(transforms)
     dataloader = DataLoader(
         dataset,
