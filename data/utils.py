@@ -38,13 +38,19 @@ def collate_fn(batch):
 def get_dataloader(config: DictConfig):
     transforms = get_transforms(config.augmentations)
     dataset = load_dataset(**config.dataset)
-    dataset = dataset.filter(lambda x: x['set'] == 1 and x['image'] == dataset[0]['image'])
+    if 'filter' in config:
+        if config.filter.by == 'index':
+            dataset = dataset.select([config.filter.idx])
+        else:
+            #  assume filtering by set
+            dataset = dataset.filter(lambda x: x['set'] == config.filter.set)
     dataset.set_transform(transforms)
     dataloader = DataLoader(
         dataset,
         batch_size=config.dataloader.batch_size,
         num_workers=config.dataloader.num_workers,
         sampler=WeightedRandomSampler([1]*len(dataset), num_samples=config.dataloader.dataset_length),
-        collate_fn=collate_fn
+        collate_fn=collate_fn,
+        pin_memory=True,
     )
     return dataloader

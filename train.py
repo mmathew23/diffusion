@@ -10,6 +10,7 @@ import os
 from tqdm import tqdm
 import xformers
 import torch.nn.functional as F
+from eval_fid import run_fid
 
 
 def compute_snr(timesteps, scheduler):
@@ -126,10 +127,11 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
 
             if (epoch + 1) % config.save_model_epochs == 0 or epoch == config.num_epochs - 1:
                 pipeline.save_pretrained(os.path.join(config.output_dir, f"checkpoints_{epoch+1}"))
+                fid = run_fid(pipeline, train_dataloader, device=accelerator.device)
+                accelerator.log({"fid": fid}, step=global_step)
 
             if config.use_ema:
                 ema.restore(model.parameters())
-
 
     accelerator.end_training()
 

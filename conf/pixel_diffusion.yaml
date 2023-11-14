@@ -1,5 +1,5 @@
 model_name: "texture_diffusion"
-image_size: 128  
+image_size: 256
 dataset_name: 'texturedesign/td01_natural-ground-textures'
 snr_gamma: 5.0 
 use_ema: False
