@@ -1,29 +1,42 @@
 model_name: "texture_diffusion"
-image_size: 256
+image_size: 128
 dataset_name: 'texturedesign/td01_natural-ground-textures'
-snr_gamma: 5.0 
-use_ema: False
+# dataset_name: 'student/celebA'
+snr_gamma: 0.0 
+use_ema: true
 noise_offset: 0.1
 train_batch_size: 16
-val_batch_size: 8
-num_epochs: 20
+val_batch_size: 16
+num_epochs: 50
 gradient_accumulation_steps: 1
 learning_rate: 1e-4
-save_image_epochs: 4
-save_model_epochs: 8
+save_image_epochs: 2
+save_model_epochs: 5
 mixed_precision: "fp16"  # `no` for float32, `fp16` for automatic mixed precision
-output_dir: "ddpm-textures_noattention20_dataset0_noise_offset0.1_snr_ema"  # the model name locally
+# output_dir: "ddpm-textures_celebA"
+output_dir: "ddpm-textures_stride1idx1_3down_patch_conv"
 overwrite_output_dir: true  # overwrite the old model when re-running the notebook
 seed: 0
+# unet:
+#   _target_: "unet2d.UTransformer2DModel"
+#   sample_size: ${image_size}
+#   in_channels: 3
+#   out_channels: 3
+#   num_layers: 10
+#   dropout: 0.0
+#   attention_head_dim: 72
+#   num_attention_heads: 16
+#   patch_size: 16
+#   # act_fn: 'silu'
 unet:
   _target_: "diffusers.UNet2DModel"
   sample_size: ${image_size}
   in_channels: 3
   out_channels: 3
-  layers_per_block: 2
-  block_out_channels: [64, 128, 128, 128]
-  down_block_types: ["DownBlock2D", "DownBlock2D", "DownBlock2D", "DownBlock2D"]
-  up_block_types: ["UpBlock2D", "UpBlock2D", "UpBlock2D", "UpBlock2D"]
+  layers_per_block: 1
+  block_out_channels: [128, 256, 384]
+  down_block_types: ["DownBlock2D", "DownBlock2D", "DownBlock2D"]
+  up_block_types: ["UpBlock2D", "UpBlock2D", "UpBlock2D"]
   dropout: 0.0
   add_attention: False
 noise_scheduler:
@@ -33,20 +46,33 @@ noise_scheduler:
 optimizer:
   _target_: "torch.optim.AdamW"
   lr: ${learning_rate}
+  weight_decay: 0.0001
 lr_scheduler:
   num_warmup_steps: 500
 data:
+  filter:
+    # by: 'set' # can also be 'index'
+    # idx: 1
+    by: 'index' # can also be 'set'
+    idx: 0
   dataset:
     path: ${dataset_name}
     split: 'train'
   augmentations:
-    - _target_: "torchvision.transforms.RandomCrop"
+    # - _target_: "torchvision.transforms.Resize"
+    #   size: ${image_size}
+    # - _target_: "torchvision.transforms.CenterCrop"
+    #   size: ${image_size}
+    # - _target_: "torchvision.transforms.RandomCrop"
+    #   size: ${image_size}
+    - _target_: "data.utils.StridedRandomCrop"
       size: ${image_size}
+      stride: 1
     # - _target_: "torchvision.transforms.RandomHorizontalFlip"
     #   p: 0.5
     # - _target_: "torchvision.transforms.RandomVerticalFlip"
     #   p: 0.5
   dataloader:
     num_workers: 8
-    dataset_length: 16000
+    dataset_length: 32000
     batch_size: ${train_batch_size}

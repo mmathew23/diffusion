@@ -11,6 +11,9 @@ def create_diffusion_samples(pipeline, num_samples, fid, batch_size=16, device=N
     count = 0
     for i in range(int(np.ceil(num_samples / batch_size))):
         images = pipeline(batch_size=batch_size, num_inference_steps=num_inference_steps, return_dict=True, output_type='tensor').images
+        if isinstance(images, np.ndarray):
+            # images = torch.tensor(images.permute(0, 3, 1, 2))
+            images = torch.tensor(np.transpose(images, (0, 3, 1, 2)))
         fid.update(images, real=real)
         count += images.shape[0]
         if count >= num_samples:
@@ -21,7 +24,7 @@ def create_tile_samples(dataloader, num_samples, fid, real=True):
     count = 0
     while count < num_samples:
         for i, batch in enumerate(dataloader):
-            if i ==0 and count == 0:
+            if i == 0 and count == 0:
                 fid = fid.to(device=batch['pixel_values'].device)
             fid.update(((batch['pixel_values']+1)/2), real=real)
             count += batch['pixel_values'].shape[0]

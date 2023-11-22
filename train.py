@@ -1,10 +1,15 @@
 import torch
+import torch.nn as nn
+from torch import Tensor
+from typing import Optional
+
 import hydra
 from omegaconf import DictConfig, OmegaConf
 from data.utils import get_dataloader
-from diffusers.optimization import get_cosine_schedule_with_warmup
+from diffusers.optimization import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
 from validate import evaluate
 from diffusers import DDIMPipeline, EMAModel
+from diffusers.models.lora import LoRACompatibleConv
 from accelerate import Accelerator
 import os
 from tqdm import tqdm
@@ -91,6 +96,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
             with accelerator.accumulate(model):
                 # Predict the noise residual
                 noise_pred = model(noisy_images, timesteps, return_dict=False)[0]
+
                 if config.snr_gamma > 0.0:
                     snr = compute_snr(timesteps, noise_scheduler)
                     mse_loss_weights = (
@@ -118,22 +124,44 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
                 global_step += 1
 
         if accelerator.is_main_process:
-            if config.use_ema:
-                ema.store(model.parameters())
-                ema.copy_to(model.parameters())
             pipeline = DDIMPipeline(unet=accelerator.unwrap_model(model), scheduler=noise_scheduler)
             if (epoch + 1) % config.save_image_epochs == 0 or epoch == config.num_epochs - 1:
                 evaluate(config, epoch, pipeline)
 
             if (epoch + 1) % config.save_model_epochs == 0 or epoch == config.num_epochs - 1:
                 pipeline.save_pretrained(os.path.join(config.output_dir, f"checkpoints_{epoch+1}"))
-                fid = run_fid(pipeline, train_dataloader, device=accelerator.device)
-                accelerator.log({"fid": fid}, step=global_step)
+                #fid = run_fid(pipeline, train_dataloader, device=accelerator.device)
+                #accelerator.log({"fid": fid}, step=global_step)
 
-            if config.use_ema:
-                ema.restore(model.parameters())
+                if config.use_ema:
+                    ema.store(model.parameters())
+                    ema.copy_to(model.parameters())
+                    pipeline = DDIMPipeline(unet=accelerator.unwrap_model(model), scheduler=noise_scheduler)
+                    pipeline.save_pretrained(os.path.join(config.output_dir, f"ema_checkpoints_{epoch+1}"))
+                    ema.restore(model.parameters())
 
     accelerator.end_training()
+
+
+def convWithBilinear(self, input: Tensor, weight: Tensor, bias: Optional[Tensor]):
+    self.paddingX = (self._reversed_padding_repeated_twice[0], self._reversed_padding_repeated_twice[1], self._reversed_padding_repeated_twice[2], self._reversed_padding_repeated_twice[3])
+    # new_h = input.shape[2] + self.paddingX[2] + self.paddingX[3]
+    # new_w = input.shape[3] + self.paddingX[0] + self.paddingX[1]
+    # working = F.interpolate(input, size=(new_h, new_w), mode='bilinear', align_corners=True)
+    working = F.pad(input, self.paddingX, mode='replicate')
+    return F.conv2d(working, weight, bias, self.stride, (0, 0), self.dilation, self.groups)
+
+
+def patch_conv2d(model):
+    for name, module in model.named_children():
+        if isinstance(module, nn.Conv2d):
+            if isinstance(module, LoRACompatibleConv) and module.lora_layer is None:
+                module.lora_layer = lambda *x: 0
+
+            module._conv_forward = convWithBilinear.__get__(module, torch.nn.Conv2d)
+        else:
+            # Recursively apply to child modules
+            patch_conv2d(module)
 
 
 @hydra.main(version_base=None, config_path="conf", config_name='pixel_diffusion')
@@ -142,10 +170,11 @@ def train(config: DictConfig) -> None:
     train_dataloader = get_dataloader(config.data)
     # _convert_ partial to save listconfigs as lists in unet so that it can be saved
     unet = hydra.utils.instantiate(config.unet, _convert_="partial")
+    patch_conv2d(unet)
     print(f'Parameter count: {sum([torch.numel(p) for p in unet.parameters()])}')
     noise_scheduler = hydra.utils.instantiate(config.noise_scheduler)
     optimizer = hydra.utils.instantiate(config.optimizer, params=unet.parameters())
-    lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps, num_training_steps=len(train_dataloader)*config.num_epochs)
+    lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps, num_training_steps=len(train_dataloader)*config.num_epochs//config.gradient_accumulation_steps)
     assert config.output_dir is not None, "You need to specify an output directory"
 
     train_loop(config, unet, noise_scheduler, optimizer, train_dataloader, lr_scheduler)
