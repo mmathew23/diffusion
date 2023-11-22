@@ -1,18 +1,18 @@
 model_name: "texture_diffusion"
 image_size: 128
 dataset_name: 'texturedesign/td01_natural-ground-textures'
-snr_gamma: 5.0 
-use_ema: False
+snr_gamma: 0.0 
+use_ema: True
 noise_offset: 0.1
-train_batch_size: 32
-val_batch_size: 32
-num_epochs: 40
+train_batch_size: 64
+val_batch_size: 16
+num_epochs: 100
 gradient_accumulation_steps: 1
 learning_rate: 1e-4
-save_image_epochs: 2
-save_model_epochs: 5
+save_image_epochs: 5
+save_model_epochs: 20
 mixed_precision: "fp16"  # `no` for float32, `fp16` for automatic mixed precision
-output_dir: "ddpm-textures_64_40epopch_aatn"
+output_dir: "ddpm-textures_iadb"
 overwrite_output_dir: true  # overwrite the old model when re-running the notebook
 seed: 0
 unet:
@@ -20,14 +20,12 @@ unet:
   sample_size: ${image_size}
   in_channels: 3
   out_channels: 3
-  layers_per_block: 1
-  block_out_channels: [64, 64, 128, 128, 128]
-  # block_out_channels: [64, 64, 64, 64]
-  down_block_types: ["DownBlock2D", "DownBlock2D", "DownBlock2D", "AttnDownBlock2D", "DownBlock2D"]
-  up_block_types: ["UpBlock2D", "AttnUpBlock2D", "UpBlock2D", "UpBlock2D", "UpBlock2D"]
+  layers_per_block: 2
+  block_out_channels: [128, 128, 256, 256, 512, 512]
+  down_block_types: ["DownBlock2D", "DownBlock2D", "DownBlock2D", "DownBlock2D", "AttnDownBlock2D", "DownBlock2D"]
+  up_block_types: ["UpBlock2D", "AttnUpBlock2D", "UpBlock2D", "UpBlock2D", "UpBlock2D", "UpBlock2D"]
   dropout: 0.0
   add_attention: True
-  # norm_num_groups: 4
 noise_scheduler:
   _target_: "diffusers.DDPMScheduler"
   num_train_timesteps: 1000
@@ -35,24 +33,27 @@ noise_scheduler:
 optimizer:
   _target_: "torch.optim.AdamW"
   lr: ${learning_rate}
+  weight_decay: 0.01
 lr_scheduler:
   num_warmup_steps: 500
 data:
   filter:
     by: 'index' # can also be 'set'
-    idx: 20
+    idx: 0
   dataset:
     path: ${dataset_name}
     split: 'train'
     # name: 'JXL@4K'
   augmentations:
     - _target_: "torchvision.transforms.RandomCrop"
+    # - _target_: "data.utils.StridedRandomCrop"
       size: ${image_size}
+      # stride: 8
     # - _target_: "torchvision.transforms.RandomHorizontalFlip"
     #   p: 0.5
     # - _target_: "torchvision.transforms.RandomVerticalFlip"
     #   p: 0.5
   dataloader:
     num_workers: 16
-    dataset_length: 32000
+    dataset_length: 128000
     batch_size: ${train_batch_size}
