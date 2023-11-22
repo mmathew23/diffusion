@@ -14,6 +14,77 @@ class AlphaDeblendPipeline(DiffusionPipeline):
         scheduler = DDIMScheduler.from_config(scheduler.config)
 
         self.register_modules(unet=unet, scheduler=scheduler)
+        self.trained_image_size = unet.config.sample_size
+
+    @torch.no_grad()
+    def tile_generate(
+        self,
+        batch_size: int = 1,
+        generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
+        eta: float = 0.0,
+        num_inference_steps: int = 50,
+        use_clipped_model_output: Optional[bool] = None,
+        output_type: Optional[str] = "pil",
+        return_dict: bool = True,
+    ) -> Union[ImagePipelineOutput, Tuple]:
+        buffer = 8
+        mult, rem = divmod(self.unet.config.sample_size - self.trained_image_size, self.trained_image_size-buffer)
+        mult += 1 if rem>0 else 0
+        output_shape = (self.trained_image_size-buffer) * mult + self.trained_image_size
+        image_shape = (batch_size, self.unet.config.in_channels, output_shape, output_shape)
+        image = randn_tensor(image_shape, generator=generator, device=self._execution_device, dtype=self.unet.dtype)
+        # image += 0.1 * torch.randn(
+        #                 (image.shape[0], image.shape[1], 1, 1), device=image.device)
+
+
+        # set step values
+        self.scheduler.set_timesteps(num_inference_steps)
+
+        for t in self.progress_bar(range(num_inference_steps)):
+            tiles = torch.nn.functional.unfold(
+                image,
+                kernel_size=(self.trained_image_size, self.trained_image_size),
+                stride=(self.trained_image_size-buffer, self.trained_image_size-buffer),
+            )
+            #current shape b, c*k*k, n where n is the number of tiles
+            bs, ckk, num_tiles = tiles.shape
+            tiles = tiles.view(bs, 3, self.trained_image_size, self.trained_image_size, num_tiles).permute(4, 0, 1, 2, 3)
+            for tile_num in range(tiles.shape[0]):
+                alpha_start = (t / num_inference_steps)
+                alpha_end = ((t+1) / num_inference_steps)
+
+                # 1. predict noise model_output
+                model_output = self.unet(tiles[tile_num], torch.tensor(alpha_start, device=image.device, dtype=torch.float16)).sample
+                tiles[tile_num] = tiles[tile_num] + (alpha_end-alpha_start) * model_output
+            tiles = tiles.permute(1, 2, 3, 4, 0).view(bs, ckk, num_tiles)
+            image = torch.nn.functional.fold(
+                tiles,
+                output_size=(output_shape, output_shape),
+                kernel_size=(self.trained_image_size, self.trained_image_size),
+                stride=(self.trained_image_size-buffer, self.trained_image_size-buffer),
+            )
+            # fold up ones to know how to weight the overlapped patches for mean
+            ones = torch.ones_like(tiles)
+            mean_weight = torch.nn.functional.fold(
+                ones,
+                output_size=(output_shape, output_shape),
+                kernel_size=(self.trained_image_size, self.trained_image_size),
+                stride=(self.trained_image_size-buffer, self.trained_image_size-buffer),
+            )
+            image /= mean_weight
+
+        image = (image / 2 + 0.5).clamp(0, 1)
+        image = image.cpu()
+        if output_type == "pil":
+            image = self.numpy_to_pil(image.permute(0, 2, 3, 1).numpy())
+        if output_type == "numpy":
+            image = self.numpy_to_tensor(image.permute(0, 2, 3, 1).numpy())
+
+        if not return_dict:
+            return (image,)
+
+        return ImagePipelineOutput(images=image)
+
 
     @torch.no_grad()
     def __call__(

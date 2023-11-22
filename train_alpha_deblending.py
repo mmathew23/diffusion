@@ -3,6 +3,7 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 from data.utils import get_dataloader
 from diffusers.optimization import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
+from transformers.optimization import get_inverse_sqrt_schedule
 from validate import evaluate
 from diffusers import EMAModel
 from accelerate import Accelerator
@@ -30,7 +31,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
 
     if config.use_ema:
         ema = EMAModel(model.parameters())
-    
+
 
     accelerator = Accelerator(
         mixed_precision=config.mixed_precision,
@@ -76,7 +77,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
             with accelerator.accumulate(model):
                 # Predict the noise residual
                 noise_pred = model(noisy_images, alpha, return_dict=False)[0]
-                if config.snr_gamma > 0.0:  
+                if config.snr_gamma > 0.0:
                     snr = compute_snr(alpha)
                     mse_loss_weights = (
                         torch.stack([snr, config.snr_gamma * torch.ones_like(alpha)], dim=1).min(dim=1)[0] / snr
@@ -103,9 +104,6 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
                 global_step += 1
 
         if accelerator.is_main_process:
-            if config.use_ema:
-                ema.store(model.parameters())
-                ema.copy_to(model.parameters())
             pipeline = AlphaDeblendPipeline(unet=accelerator.unwrap_model(model), scheduler=noise_scheduler)
             if (epoch + 1) % config.save_image_epochs == 0 or epoch == config.num_epochs - 1:
                 evaluate(config, epoch, pipeline)
@@ -116,9 +114,13 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
                 # fid = run_fid(pipeline, train_dataloader, device=accelerator.device)
                 # print(fid)
                 # accelerator.log({"fid": fid}, step=global_step)
+                if config.use_ema:
+                    ema.store(model.parameters())
+                    ema.copy_to(model.parameters())
+                    pipeline = AlphaDeblendPipeline(unet=accelerator.unwrap_model(model), scheduler=noise_scheduler)
+                    pipeline.save_pretrained(os.path.join(config.output_dir, f"ema_checkpoints_{epoch+1}"))
+                    ema.restore(model.parameters())
 
-            if config.use_ema:
-                ema.restore(model.parameters())
 
     accelerator.end_training()
 
@@ -132,12 +134,12 @@ def train(config: DictConfig) -> None:
     print(f'Parameter count: {sum([torch.numel(p) for p in unet.parameters()])}')
     noise_scheduler = hydra.utils.instantiate(config.noise_scheduler)
     optimizer = hydra.utils.instantiate(config.optimizer, params=unet.parameters())
-    lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps, num_training_steps=len(train_dataloader)*config.num_epochs)
+    lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps, num_training_steps=len(train_dataloader)*config.num_epochs//config.gradient_accumulation_steps)
+    # lr_scheduler = get_inverse_sqrt_schedule(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps)
     # lr_scheduler = get_constant_schedule_with_warmup(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps)
     assert config.output_dir is not None, "You need to specify an output directory"
 
     train_loop(config, unet, noise_scheduler, optimizer, train_dataloader, lr_scheduler)
-
 
 
 if __name__ == '__main__':
