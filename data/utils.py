@@ -1,9 +1,56 @@
 from omegaconf import DictConfig, ListConfig
 from hydra.utils import instantiate
-from torchvision.transforms import Normalize, ToTensor, Compose
+from torchvision.transforms import Normalize, ToTensor, Compose, CenterCrop, RandomCrop, Resize
+from torchvision.transforms.functional import get_dimensions, pad, crop
 import torch
 from datasets import load_dataset
 from torch.utils.data import DataLoader, WeightedRandomSampler
+
+
+class StridedRandomCrop(RandomCrop):
+    @staticmethod
+    def get_params(img, output_size, stride):
+        _, h, w = get_dimensions(img)
+        th, tw = output_size
+
+        if h < th or w < tw:
+            raise ValueError(f"Required crop size {(th, tw)} is larger than input image size {(h, w)}")
+
+        if w == tw and h == th:
+            return 0, 0, h, w
+
+        i = (torch.randint(0, h - th + 1, size=(1,)).item() // stride) * stride
+        j = (torch.randint(0, w - tw + 1, size=(1,)).item() // stride) * stride
+        return i, j, th, tw
+
+    def __init__(self, size, stride=128, padding=None, pad_if_needed=False, fill=0, padding_mode="constant"):
+        super().__init__(size, padding, pad_if_needed, fill, padding_mode)
+        self.stride = stride
+
+    def forward(self, img):
+        """
+        Args:
+            img (PIL Image or Tensor): Image to be cropped.
+
+        Returns:
+            PIL Image or Tensor: Cropped image.
+        """
+        if self.padding is not None:
+            img = pad(img, self.padding, self.fill, self.padding_mode)
+
+        _, height, width = get_dimensions(img)
+        # pad the width if needed
+        if self.pad_if_needed and width < self.size[1]:
+            padding = [self.size[1] - width, 0]
+            img = pad(img, padding, self.fill, self.padding_mode)
+        # pad the height if needed
+        if self.pad_if_needed and height < self.size[0]:
+            padding = [0, self.size[0] - height]
+            img = pad(img, padding, self.fill, self.padding_mode)
+
+        i, j, h, w = self.get_params(img, self.size, self.stride)
+
+        return crop(img, i, j, h, w)
 
 
 def get_augmentations(cfg: DictConfig):
@@ -14,6 +61,8 @@ def get_augmentations(cfg: DictConfig):
 def get_transforms(cfg: ListConfig):
     augs = get_augmentations(cfg)
     transforms = Compose([
+        # Resize(128),
+        # CenterCrop(128),
         augs,
         ToTensor(),
         Normalize(
@@ -43,7 +92,7 @@ def get_dataloader(config: DictConfig):
             dataset = dataset.select([config.filter.idx])
         else:
             #  assume filtering by set
-            dataset = dataset.filter(lambda x: x['set'] == config.filter.set)
+            dataset = dataset.filter(lambda x: x['set'] == config.filter.idx)
     dataset.set_transform(transforms)
     dataloader = DataLoader(
         dataset,
