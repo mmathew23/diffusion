@@ -133,7 +133,7 @@ def train(config: DictConfig) -> None:
     optimizer = hydra.utils.instantiate(config.optimizer, params=unet.parameters())
     lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps, num_training_steps=len(train_dataloader)*config.num_epochs//config.gradient_accumulation_steps)
     # lr_scheduler = get_inverse_sqrt_schedule(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps)
-    lr_scheduler = get_constant_schedule_with_warmup(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps)
+    # lr_scheduler = get_constant_schedule_with_warmup(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps)
     assert config.output_dir is not None, "You need to specify an output directory"
 
     train_loop(config, unet, noise_scheduler, optimizer, train_dataloader, lr_scheduler)
