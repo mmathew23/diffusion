@@ -7,6 +7,8 @@ from alpha_deblend_pipeline import AlphaDeblendPipeline
 import os
 from datetime import datetime
 import fire
+import time
+
 
 
 def main(
@@ -34,8 +36,10 @@ def main(
 
     # if one wants to disable `tqdm`
     pipeline.set_progress_bar_config(disable=True)
+    start_time = time.time()
     fid=run_fid(pipeline=pipeline, dataloader=train_dataloader, num_samples=num_samples, num_inference_steps=50, batch_size=32, device=device)
-    print(fid)
+    end_time = time.time()
+    print(f'FID: {fid} calculated in {end_time-start_time} seconds')
     with open(save_file, 'w+') as f:
         f.write(str(fid))
         f.write('\n')
