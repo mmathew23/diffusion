@@ -10,6 +10,8 @@ import os
 from tqdm import tqdm
 import torch.nn.functional as F
 from alpha_deblend_pipeline import AlphaDeblendPipeline
+from hydra.core.hydra_config import HydraConfig
+import shutil
 
 
 def compute_snr(alphas):
@@ -40,6 +42,14 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
     if accelerator.is_main_process:
         # Create output directory if needed, and asserted for not None in train
         os.makedirs(config.output_dir, exist_ok=True)
+        hydra_dir = os.path.join(HydraConfig.get().runtime.output_dir, '.hydra')
+        print(f'copying from hydra dir {hydra_dir}')
+        f_name = 'config.yaml'
+        shutil.copy2(os.path.join(hydra_dir, f_name), os.path.join(config.output_dir, f_name))
+        f_name = 'hydra.yaml'
+        shutil.copy2(os.path.join(hydra_dir, f_name), os.path.join(config.output_dir, f_name))
+        f_name = 'overrides.yaml'
+        shutil.copy2(os.path.join(hydra_dir, f_name), os.path.join(config.output_dir, f_name))
 
         accelerator.init_trackers(config.model_name)
 
