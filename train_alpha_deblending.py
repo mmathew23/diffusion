@@ -141,7 +141,8 @@ def train(config: DictConfig) -> None:
     print(f'Parameter count: {sum([torch.numel(p) for p in unet.parameters()])}')
     noise_scheduler = hydra.utils.instantiate(config.noise_scheduler)
     optimizer = hydra.utils.instantiate(config.optimizer, params=unet.parameters())
-    lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps, num_training_steps=len(train_dataloader)*config.num_epochs//config.gradient_accumulation_steps)
+    num_cycles = config.lr_scheduler.num_cycles if hasattr(config.lr_scheduler, 'num_cycles') else 0.5
+    lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps, num_training_steps=len(train_dataloader)*config.num_epochs//config.gradient_accumulation_steps, num_cycles=num_cycles)
     # lr_scheduler = get_inverse_sqrt_schedule(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps)
     # lr_scheduler = get_constant_schedule_with_warmup(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps)
     assert config.output_dir is not None, "You need to specify an output directory"

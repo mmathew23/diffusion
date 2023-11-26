@@ -6,13 +6,13 @@ use_ema: False
 noise_offset: 0.1
 train_batch_size: 16
 val_batch_size: 8
-num_epochs: 20
+num_epochs: 15
 gradient_accumulation_steps: 1
-learning_rate: 1e-4
+learning_rate: 5e-4
 save_image_epochs: 1
 save_model_epochs: 5
 mixed_precision: "fp16"  # `no` for float32, `fp16` for automatic mixed precision
-output_dir: "ddpm-textures_retry_alpha"
+output_dir: "ddpm-textures_retry_alpha_2layer_15epoch_.375num_cycles_inclr5e4"
 overwrite_output_dir: true  # overwrite the old model when re-running the notebook
 seed: 0
 unet:
@@ -36,6 +36,7 @@ optimizer:
   # weight_decay: 0.01
 lr_scheduler:
   num_warmup_steps: 500
+  num_cycles: 0.375
 data:
   filter:
     by: 'index' # can also be 'set'

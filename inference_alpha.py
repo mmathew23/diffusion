@@ -41,16 +41,16 @@ def inference(checkpoint):
 
     pipeline.unet.config.sample_size = 1024
     pipeline.to(torch.device("cuda:0"))
-    images = pipeline(
-        batch_size=1,
-        num_inference_steps=50,
-        # generator=torch.cuda.manual_seed(0),
-    ).images
-    # images = pipeline.tile_generate(
+    # images = pipeline(
     #     batch_size=1,
     #     num_inference_steps=50,
     #     # generator=torch.cuda.manual_seed(0),
     # ).images
+    images = pipeline.tile_generate(
+        batch_size=1,
+        num_inference_steps=128,
+        # generator=torch.cuda.manual_seed(0),
+    ).images
 
 
     directory = os.path.dirname(checkpoint)
