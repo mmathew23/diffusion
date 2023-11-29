@@ -18,11 +18,10 @@ def compute_snr(alphas):
     """
     Computes SNR as per https://github.com/TiankaiHang/Min-SNR-Diffusion-Training/blob/521b624bd70c67cee4bdf49225915f5945a872e3/guided_diffusion/gaussian_diffusion.py#L847-L849
     """
-    alpha = alphas**0.5
-    sigma = (1-alphas)**0.5
-
     # Compute SNR.
-    snr = (alpha / sigma) ** 2
+    # snr = (alphas / (1 - alphas)) ** 2
+    # the 1- logic is reversed for iterative deblending
+    snr = ((1-alphas) / alphas) ** 2
     return snr
 
 
@@ -141,10 +140,14 @@ def train(config: DictConfig) -> None:
     print(f'Parameter count: {sum([torch.numel(p) for p in unet.parameters()])}')
     noise_scheduler = hydra.utils.instantiate(config.noise_scheduler)
     optimizer = hydra.utils.instantiate(config.optimizer, params=unet.parameters())
-    num_cycles = config.lr_scheduler.num_cycles if hasattr(config.lr_scheduler, 'num_cycles') else 0.5
-    lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps, num_training_steps=len(train_dataloader)*config.num_epochs//config.gradient_accumulation_steps, num_cycles=num_cycles)
+    if 'name' not in config.lr_scheduler or config.lr_scheduler.name == 'cosine':
+        num_cycles = config.lr_scheduler.num_cycles if hasattr(config.lr_scheduler, 'num_cycles') else 0.5
+        lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps, num_training_steps=len(train_dataloader)*config.num_epochs//config.gradient_accumulation_steps, num_cycles=num_cycles)
+    elif config.lr_scheduler.name == 'constant':
+        lr_scheduler = get_constant_schedule_with_warmup(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps)
+    else:
+        raise NotImplementedError("Only cosine and constant lr schedulers are supported")
     # lr_scheduler = get_inverse_sqrt_schedule(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps)
-    # lr_scheduler = get_constant_schedule_with_warmup(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps)
     assert config.output_dir is not None, "You need to specify an output directory"
 
     train_loop(config, unet, noise_scheduler, optimizer, train_dataloader, lr_scheduler)
