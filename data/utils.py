@@ -19,8 +19,8 @@ class StridedRandomCrop(RandomCrop):
         if w == tw and h == th:
             return 0, 0, h, w
 
-        i = (torch.randint(0, h - th + 1, size=(1,)).item() // stride) * stride
-        j = (torch.randint(0, w - tw + 1, size=(1,)).item() // stride) * stride
+        i = torch.randint(0, h//stride, size=(1,)).item() * stride
+        j = torch.randint(0, w//stride, size=(1,)).item() * stride
         return i, j, th, tw
 
     def __init__(self, size, stride=128, padding=None, pad_if_needed=False, fill=0, padding_mode="constant"):
@@ -62,7 +62,7 @@ def get_transforms(cfg: ListConfig):
     augs = get_augmentations(cfg)
     transforms = Compose([
         # Resize(128),
-        # CenterCrop(128),
+        # CenterCrop(1024),
         augs,
         ToTensor(),
         Normalize(
