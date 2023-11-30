@@ -19,8 +19,8 @@ class StridedRandomCrop(RandomCrop):
         if w == tw and h == th:
             return 0, 0, h, w
 
-        i = torch.randint(0, h//stride, size=(1,)).item() * stride
-        j = torch.randint(0, w//stride, size=(1,)).item() * stride
+        i = torch.randint(0, (h-th)//stride+1, size=(1,)).item() * stride
+        j = torch.randint(0, (w-tw)//stride+1, size=(1,)).item() * stride
         return i, j, th, tw
 
     def __init__(self, size, stride=128, padding=None, pad_if_needed=False, fill=0, padding_mode="constant"):
