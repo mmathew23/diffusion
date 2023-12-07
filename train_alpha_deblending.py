@@ -1,4 +1,7 @@
 import torch
+import torch.nn.functional as F
+from torch.optim.lr_scheduler import LambdaLR
+from torchvision.utils import save_image
 import hydra
 from omegaconf import DictConfig, OmegaConf
 from data.utils import get_dataloader
@@ -8,11 +11,18 @@ from diffusers import EMAModel
 from accelerate import Accelerator
 import os
 from tqdm import tqdm
-import torch.nn.functional as F
 from alpha_deblend_pipeline import AlphaDeblendPipeline
 from hydra.core.hydra_config import HydraConfig
 import shutil
+import math
 
+
+def get_inverse_sqrt_schedule(optimizer, num_warmup_steps, t_ref):
+    def lr_lambda(current_step):
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1.0, num_warmup_steps))
+        return 1.0 / math.sqrt(max(1.0, (current_step - num_warmup_steps) / tref))
+    return LambdaLR(optimizer, lr_lambda)
 
 def compute_snr(alphas):
     """
@@ -71,6 +81,8 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
         progress_bar.set_description(f"Epoch {epoch}")
         for step, batch in enumerate(train_dataloader):
             images = batch["pixel_values"]
+            if epoch == 0 and step < 10:
+                save_image((images/2+0.5).cpu(), os.path.join(config.output_dir, f"images_{epoch}_{step}.png"))
 
             noise = torch.randn_like(images) + config.noise_offset * torch.randn(
                         (images.shape[0], images.shape[1], 1, 1), device=images.device
@@ -145,6 +157,8 @@ def train(config: DictConfig) -> None:
         lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps, num_training_steps=len(train_dataloader)*config.num_epochs//config.gradient_accumulation_steps, num_cycles=num_cycles)
     elif config.lr_scheduler.name == 'constant':
         lr_scheduler = get_constant_schedule_with_warmup(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps)
+    elif config.lr_scheduler.name == 'inverse_sqrt':
+        lr_scheduler = get_inverse_sqrt_schedule(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps, t_ref=config.lr_scheduler.t_ref)
     else:
         raise NotImplementedError("Only cosine and constant lr schedulers are supported")
     # lr_scheduler = get_inverse_sqrt_schedule(optimizer, num_warmup_steps=config.lr_scheduler.num_warmup_steps)
