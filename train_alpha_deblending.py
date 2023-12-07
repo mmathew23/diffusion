@@ -21,7 +21,7 @@ def get_inverse_sqrt_schedule(optimizer, num_warmup_steps, t_ref):
     def lr_lambda(current_step):
         if current_step < num_warmup_steps:
             return float(current_step) / float(max(1.0, num_warmup_steps))
-        return 1.0 / math.sqrt(max(1.0, (current_step - num_warmup_steps) / tref))
+        return 1.0 / math.sqrt(max(1.0, (current_step - num_warmup_steps) / t_ref))
     return LambdaLR(optimizer, lr_lambda)
 
 def compute_snr(alphas):
